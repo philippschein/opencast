@@ -317,13 +317,25 @@ public class IngestRestService extends AbstractJobProducerEndpoint {
       },
       responses = {
           @RestResponse(description = "", responseCode = HttpServletResponse.SC_OK),
+          @RestResponse(description = "Media package not valid", responseCode = HttpServletResponse.SC_BAD_REQUEST),
           @RestResponse(description = "", responseCode = HttpServletResponse.SC_INTERNAL_SERVER_ERROR)
       },
       returnDescription = "")
   public Response discardMediaPackage(@FormParam("mediaPackage") String mpx) {
     logger.debug("discardMediaPackage(MediaPackage): {}", mpx);
+    if (StringUtils.isBlank(mpx)) {
+      return badRequest("The 'mediaPackage' parameter is required", null);
+    }
+    MediaPackage mp;
     try {
-      MediaPackage mp = MP_FACTORY.newMediaPackageBuilder().loadFromXml(mpx);
+      mp = MP_FACTORY.newMediaPackageBuilder().loadFromXml(mpx);
+    } catch (MediaPackageException e) {
+      return badRequest("Unable to parse the 'mediaPackage' parameter", e);
+    }
+    if (MediaPackageSupport.sanityCheck(mp).isPresent()) {
+      return badRequest("The 'mediaPackage' parameter does not identify a media package", null);
+    }
+    try {
       ingestService.discardMediaPackage(mp);
       return Response.ok().build();
     } catch (Exception e) {
