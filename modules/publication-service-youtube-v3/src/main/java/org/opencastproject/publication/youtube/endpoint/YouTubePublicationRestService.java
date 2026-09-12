@@ -30,6 +30,7 @@ import org.opencastproject.job.api.JaxbJob;
 import org.opencastproject.job.api.Job;
 import org.opencastproject.job.api.JobProducer;
 import org.opencastproject.mediapackage.MediaPackage;
+import org.opencastproject.mediapackage.MediaPackageException;
 import org.opencastproject.mediapackage.MediaPackageParser;
 import org.opencastproject.mediapackage.Track;
 import org.opencastproject.publication.api.YouTubePublicationService;
@@ -41,6 +42,7 @@ import org.opencastproject.util.doc.rest.RestQuery;
 import org.opencastproject.util.doc.rest.RestResponse;
 import org.opencastproject.util.doc.rest.RestService;
 
+import org.apache.commons.lang3.StringUtils;
 import org.osgi.service.component.annotations.Component;
 import org.osgi.service.component.annotations.Reference;
 import org.osgi.service.jaxrs.whiteboard.propertytypes.JaxrsResource;
@@ -113,22 +115,36 @@ public class YouTubePublicationRestService extends AbstractJobProducerEndpoint {
       },
       responses = {
           @RestResponse(responseCode = SC_OK, description = "An XML representation of the publication job"),
-          @RestResponse(responseCode = SC_BAD_REQUEST, description = "elementId does not reference a track")
+          @RestResponse(
+              responseCode = SC_BAD_REQUEST,
+              description = "mediapackage is not valid or elementId does not reference a track"
+          )
       }
   )
   public Response publish(
       @FormParam("mediapackage") final String mediaPackageXml,
       @FormParam("elementId") final String elementId
   ) {
+    if (StringUtils.isBlank(mediaPackageXml)) {
+      return badRequest("The 'mediapackage' parameter is required");
+    }
+    if (StringUtils.isBlank(elementId)) {
+      return badRequest("The 'elementId' parameter is required");
+    }
+    final MediaPackage mediapackage;
+    try {
+      mediapackage = MediaPackageParser.getFromXml(mediaPackageXml);
+    } catch (MediaPackageException e) {
+      logger.debug("Unable to parse the 'mediapackage' parameter", e);
+      return badRequest("Unable to parse the 'mediapackage' parameter");
+    }
+    final Track track = mediapackage.getTrack(elementId);
+    if (track == null) {
+      return badRequest("The 'elementId' parameter does not reference a track of the media package");
+    }
     final Job job;
     try {
-      final MediaPackage mediapackage = MediaPackageParser.getFromXml(mediaPackageXml);
-      final Track track = mediapackage.getTrack(elementId);
-      if (track != null) {
-        job = service.publish(mediapackage, track);
-      } else {
-        return badRequest();
-      }
+      job = service.publish(mediapackage, track);
     } catch (Exception e) {
       logger.warn("Error publishing element '{}' to YouTube", elementId, e);
       return serverError();
@@ -147,13 +163,23 @@ public class YouTubePublicationRestService extends AbstractJobProducerEndpoint {
           @RestParameter(name = "mediapackage", isRequired = true, description = "The mediapackage", type = Type.TEXT)
       },
       responses = {
-          @RestResponse(responseCode = SC_OK, description = "An XML representation of the retraction job")
+          @RestResponse(responseCode = SC_OK, description = "An XML representation of the retraction job"),
+          @RestResponse(responseCode = SC_BAD_REQUEST, description = "mediapackage is not valid")
       }
   )
   public Response retract(@FormParam("mediapackage") final String mediaPackageXml) {
+    if (StringUtils.isBlank(mediaPackageXml)) {
+      return badRequest("The 'mediapackage' parameter is required");
+    }
+    final MediaPackage mediapackage;
+    try {
+      mediapackage = MediaPackageParser.getFromXml(mediaPackageXml);
+    } catch (MediaPackageException e) {
+      logger.debug("Unable to parse the 'mediapackage' parameter", e);
+      return badRequest("Unable to parse the 'mediapackage' parameter");
+    }
     final Job job;
     try {
-      final MediaPackage mediapackage = MediaPackageParser.getFromXml(mediaPackageXml);
       job = service.retract(mediapackage);
     } catch (Exception e) {
       logger.warn("Unable to retract mediapackage '{}' from YouTube", mediaPackageXml, e);
